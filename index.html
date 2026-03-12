@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  
+  <!-- Título -->
+  <title>Inventario 360 - Simple con Firebase</title>
+  
+  <!-- Meta para PWA / instalación -->
+  <meta name="description" content="Gestión simple de inventario con Firebase Firestore">
+  <meta name="theme-color" content="#1a73e8">
+  <meta name="background-color" content="#f0f2f5">
+  
+  <!-- Manifest para PWA -->
+  <link rel="manifest" href="./manifest.json">
+  
+  <!-- Ícono para Android/iOS -->
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="icon" href="./icon-192.png" type="image/png">
+  
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f0f2f5;
+      color: #333;
+      padding: 20px 15px;
+      min-height: 100vh;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+      color: #1a73e8;
+    }
+
+    h1 { font-size: 2.4rem; margin-bottom: 0.3rem; }
+    h2 { margin: 1.8rem 0 1rem; color: #444; }
+
+    .form-section {
+      max-width: 800px;
+      margin: 0 auto 3rem;
+      background: white;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    }
+
+    form {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+    }
+
+    input, button {
+      padding: 0.9rem 1.1rem;
+      font-size: 1rem;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+    }
+
+    button {
+      background: #1a73e8;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    button:hover { background: #1557b0; }
+
+    .table-section {
+      max-width: 1000px;
+      margin: 0 auto;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    }
+
+    th, td {
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+
+    th {
+      background: #1a73e8;
+      color: white;
+    }
+
+    tr:hover { background: #f8fbff; }
+
+    .acciones button {
+      margin: 0 5px;
+      padding: 6px 12px;
+      font-size: 0.9rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .btn-edit  { background: #fbbc05; color: #333; border: none; }
+    .btn-delete{ background: #ea4335; color: white; border: none; }
+
+    .cantidad { font-weight: bold; color: #34a853; }
+
+    @media (max-width: 600px) {
+      form { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>📦 Inventario Básico</h1>
+    <p>Conexión directa a Firebase Firestore</p>
+  </header>
+
+  <main>
+
+    <section class="form-section">
+      <h2>Agregar producto</h2>
+      <form id="formProducto">
+        <input type="text"    id="codigo"    placeholder="Código / SKU" required>
+        <input type="text"    id="nombre"    placeholder="Nombre del artículo" required>
+        <input type="number"  id="cantidad"  placeholder="Cantidad" min="0" required>
+        <input type="number"  id="precio"    placeholder="Precio unitario $" step="0.01" min="0" required>
+        <button type="submit">➕ Agregar</button>
+      </form>
+    </section>
+
+    <section class="table-section">
+      <h2>Productos en inventario</h2>
+      <table id="tablaProductos">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Producto</th>
+            <th>Cantidad</th>
+            <th>Precio</th>
+            <th>Total</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tbodyProductos"></tbody>
+      </table>
+    </section>
+
+  </main>
+
+  <!-- Firebase SDK v10 (modular) -->
+  <script type="module">
+    // ────────────────────────────────────────────────
+    //  Firebase configuración + persistencia offline
+    // ────────────────────────────────────────────────
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+    import {
+      getFirestore,
+      collection,
+      addDoc,
+      getDocs,
+      doc,
+      deleteDoc,
+      updateDoc,
+      serverTimestamp,
+      enableIndexedDbPersistence
+    } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBpUjpL3B8ULfX9PZhYm5WLah88B7TSoFY",
+      authDomain: "iventario360.firebaseapp.com",
+      projectId: "iventario360",
+      storageBucket: "iventario360.firebasestorage.app",
+      messagingSenderId: "753166264146",
+      appId: "1:753166264146:web:b0956193e6ee66905cfc8b"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Habilitar persistencia offline (cache local en IndexedDB)
+    enableIndexedDbPersistence(db)
+      .catch((err) => {
+        if (err.code === 'failed-precondition') {
+          console.warn("Persistencia falló: múltiples pestañas abiertas");
+        } else if (err.code === 'unimplemented') {
+          console.warn("El navegador no soporta persistencia IndexedDB");
+        }
+      });
+
+    // ────────────────────────────────────────────────
+    //  Registrar Service Worker para PWA
+    // ────────────────────────────────────────────────
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('Service Worker registrado correctamente'))
+          .catch(err => console.error('Error al registrar Service Worker:', err));
+      });
+    }
+
+    // ────────────────────────────────────────────────
+    //  Elementos del DOM
+    // ────────────────────────────────────────────────
+    const form = document.getElementById('formProducto');
+    const tbody = document.getElementById('tbodyProductos');
+
+    // ────────────────────────────────────────────────
+    //  Cargar todos los productos
+    // ────────────────────────────────────────────────
+    async function cargarProductos() {
+      tbody.innerHTML = '<tr><td colspan="6">Cargando...</td></tr>';
+
+      try {
+        const querySnapshot = await getDocs(collection(db, "productos"));
+        tbody.innerHTML = '';
+
+        if (querySnapshot.empty) {
+          tbody.innerHTML = '<tr><td colspan="6">Aún no hay productos registrados</td></tr>';
+          return;
+        }
+
+        querySnapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          const id = docSnap.id;
+
+          const total = (data.cantidad * data.precio).toFixed(2);
+
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${data.codigo || '—'}</td>
+            <td>${data.nombre}</td>
+            <td class="cantidad">${data.cantidad}</td>
+            <td>$${Number(data.precio).toFixed(2)}</td>
+            <td>$${total}</td>
+            <td class="acciones">
+              <button class="btn-edit" data-id="${id}" data-cant="${data.cantidad}">Editar cant.</button>
+              <button class="btn-delete" data-id="${id}">Eliminar</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (error) {
+        console.error("Error al leer Firestore:", error);
+        tbody.innerHTML = '<tr><td colspan="6">Error al cargar los datos 😢</td></tr>';
+      }
+    }
+
+    // ────────────────────────────────────────────────
+    //  Agregar nuevo producto
+    // ────────────────────────────────────────────────
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const codigo   = document.getElementById('codigo').value.trim();
+      const nombre   = document.getElementById('nombre').value.trim();
+      const cantidad = Number(document.getElementById('cantidad').value);
+      const precio   = Number(document.getElementById('precio').value);
+
+      if (!nombre || isNaN(cantidad) || cantidad < 0 || isNaN(precio) || precio < 0) {
+        alert("Por favor completa todos los campos correctamente");
+        return;
+      }
+
+      try {
+        await addDoc(collection(db, "productos"), {
+          codigo,
+          nombre,
+          cantidad,
+          precio,
+          creado: serverTimestamp()
+        });
+
+        form.reset();
+        cargarProductos();
+      } catch (err) {
+        console.error(err);
+        alert("No se pudo guardar el producto\n" + err.message);
+      }
+    });
+
+    // ────────────────────────────────────────────────
+    //  Eliminar o editar (delegación de eventos)
+    // ────────────────────────────────────────────────
+    tbody.addEventListener('click', async (e) => {
+      const btn = e.target;
+
+      // Eliminar
+      if (btn.classList.contains('btn-delete')) {
+        if (!confirm("¿Realmente quieres eliminar este producto?")) return;
+
+        const id = btn.dataset.id;
+        try {
+          await deleteDoc(doc(db, "productos", id));
+          cargarProductos();
+        } catch (err) {
+          alert("Error al eliminar");
+          console.error(err);
+        }
+      }
+
+      // Editar cantidad
+      else if (btn.classList.contains('btn-edit')) {
+        const id = btn.dataset.id;
+        const cantidadActual = btn.dataset.cant;
+        const nuevaCant = prompt("Nueva cantidad:", cantidadActual);
+
+        if (nuevaCant === null) return; // cancelado
+
+        const cant = Number(nuevaCant);
+        if (isNaN(cant) || cant < 0) {
+          alert("Cantidad no válida");
+          return;
+        }
+
+        try {
+          await updateDoc(doc(db, "productos", id), { cantidad: cant });
+          cargarProductos();
+        } catch (err) {
+          alert("No se pudo actualizar la cantidad");
+          console.error(err);
+        }
+      }
+    });
+
+    // Carga inicial
+    cargarProductos();
+  </script>
+
+</body>
+</html>
